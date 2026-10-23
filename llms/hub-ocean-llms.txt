@@ -1,0 +1,1096 @@
+# Ocean Data Platform (HubOcean Portal)
+
+> The Ocean Data Platform (ODP) portal by HubOcean is a web app for discovering, previewing and accessing ocean datasets. Anyone can browse the public catalog without signing in. Registered users can explore tabular data, view it on maps, manage their own datasets and get API keys for programmatic access through the Python and R SDKs. The public API below needs no authentication. All responses are JSON unless noted. Errors return `{"error": string}` with status 400 (bad input, e.g. a non-UUID id) or 404 (not found). Every path also accepts a trailing slash.
+
+## Public pages (no authentication)
+
+- [Home](https://app.hubocean.earth/): Entry point to the catalog.
+- [Terms of use](https://www.hubocean.earth/odp-terms)
+- [Catalog publishing policy](https://www.hubocean.earth/odp-catalog-publishing-policy)
+- [HubOcean](https://www.hubocean.earth/): The organization behind the Ocean Data Platform.
+
+## Public API
+
+### Catalog v2
+
+- [POST /api/public/catalog/v2/search](https://api.hubocean.earth/api/public/catalog/v2/search): Full-text, spatial and temporal search over public datasets and data collections. Input (JSON body, required): `query` (string; a UUID matches by id), `size` (int, default 10), `page` (int, 0-based, default 0), `hybrid` (bool, enables semantic search), `filter` (object, optional) with `types` (`["dataset", "data_collection"]`), `tags` (string[]), `contributor_id` (UUID), `license_id` (UUID), `category_ids` (UUID[]), `from_time` and `to_time` (RFC 3339), `within` (GeoJSON Polygon), `has_geometry` (bool). Output: `{total, match, top_score, results: [{id, title, description, highlights[], payload_type ("dataset" | "data_collection"), score{total_score, ...}, payload}]}`. A dataset `payload` includes `tags`, `license`, `provider`, `categories` and `storage_metadata{tabular{num_rows, total_byte_size, has_geometry}, files{num_files, total_byte_size}}`.
+- [POST /api/public/catalog/v2/autocomplete/grouped](https://api.hubocean.earth/api/public/catalog/v2/autocomplete/grouped): Search-as-you-type suggestions, grouped by type. Input (JSON body): `query` (string), `size` (int per group, default 10). Output: `[{group ("dataset" | "data_collection" | "tag" | "license" | "contributor"), result{total, results: [{id, type, title, description, score}]}}]`.
+- [GET /api/public/catalog/v2/datasets](https://api.hubocean.earth/api/public/catalog/v2/datasets): All public, published datasets. Input: none. Output: `Dataset[]` (without `tabular_metadata`).
+- [GET /api/public/catalog/v2/datasets/{datasetId}](https://api.hubocean.earth/api/public/catalog/v2/datasets/{datasetId}): One public dataset. Input: path `datasetId` (UUID). Output: `Dataset`, including `tabular_metadata`. A `Dataset` is `{id, name, description, provider{id, name, website}, license{id, name, url}, tags[], categories[], properties[{name, data_type, value, unit}], collection{id, name}, citations, contributors, documentation, gis_properties{is_ogc_features}, tabular_metadata, audit_fields{created_at, updated_at}}`.
+- [GET /api/public/catalog/v2/data-collections](https://api.hubocean.earth/api/public/catalog/v2/data-collections): All public data collections. Input: none. Output: `DataCollection[]`, each with its `datasets`.
+- [GET /api/public/catalog/v2/data-collections/{dataCollectionId}](https://api.hubocean.earth/api/public/catalog/v2/data-collections/{dataCollectionId}): One public data collection. Input: path `dataCollectionId` (UUID). Output: `DataCollection`, which is `{id, name, description, datasets: Dataset[], audit_fields}`.
+
+### Categories
+
+- [GET /api/public/catalog/v2/categories/](https://api.hubocean.earth/api/public/catalog/v2/categories/): List active dataset categories. Input (query): `q` (string, matches name, description or slug), `size` (int, default 10), `page` (int, 0-based, default 0). Output: paged list `{items: T[], total_count, limit, offset}` of `{id, name, description, slug, color, icon, display_order, is_active, dataset_count}`.
+- [GET /api/public/catalog/v2/categories/{categoryId}](https://api.hubocean.earth/api/public/catalog/v2/categories/{categoryId}): One category. Input: path `categoryId` (UUID). Output: `{id, name, description, slug, color, icon, display_order, is_active}`.
+- [GET /api/public/catalog/v2/categories/{categorySlug}/datasets](https://api.hubocean.earth/api/public/catalog/v2/categories/{categorySlug}/datasets): Public, published datasets in a category, newest first. Input: path `categorySlug`; query `limit` (default 20, max 100), `offset` (default 0). Output: paged list `{items: Dataset[], total_count, limit, offset}`.
+
+### Dataset audit logs
+
+- [GET /api/public/catalog/v2/datasets/{datasetId}/audit-logs/](https://api.hubocean.earth/api/public/catalog/v2/datasets/{datasetId}/audit-logs/): Change history of a public dataset, newest first. Input: path `datasetId` (UUID); query `limit` (default 20, max 100), `offset` (default 0), optional `labels[key]=value` filters. Output: paged list `{items: T[], total_count, limit, offset}` of `{id, actor_type, action, action_type ("create" | "update" | "delete" | "read" | "other"), timestamp, targets[{id, type}], message, labels{}}`.
+- [GET /api/public/catalog/v2/datasets/{datasetId}/audit-logs/latest](https://api.hubocean.earth/api/public/catalog/v2/datasets/{datasetId}/audit-logs/latest): Most recent change to a public dataset. Input: path `datasetId` (UUID); optional `labels[key]=value` filters. Output: `{present: bool, result?: <audit log entry>}`.
+
+### JSON-LD (schema.org)
+
+- [GET /api/public/catalog/v1/jsonld/](https://api.hubocean.earth/api/public/catalog/v1/jsonld/): schema.org JSON-LD metadata for one public dataset or data collection, as embedded in the portal's dataset and collection pages. Input (query): `uuid` (dataset or data collection UUID). Output: JSON-LD document `{"@context", "@type", ...}`.
+- [GET /api/public/catalog/v1/jsonld/search/](https://api.hubocean.earth/api/public/catalog/v1/jsonld/search/): schema.org JSON-LD for catalog search results. Output: JSON-LD document `{"@context", "@type", ...}`.
+
+### STAC API (STAC 1.0.0)
+
+- [GET /api/stac/](https://api.hubocean.earth/api/stac/): STAC root catalog. Collections are ODP data collections; items are their public datasets. Pagination uses `limit`, `offset` and `page`; responses include `prev` / `next` links when `limit` is set. Without `limit`, `/collections` and `/items` return everything. Input: none. Output: `{id, stac_version, description, conformsTo[], links[]}`.
+- [GET /api/stac/conformance](https://api.hubocean.earth/api/stac/conformance): Conformance classes. Input: none. Output: `{conformsTo: string[]}`.
+- [GET /api/stac/collections](https://api.hubocean.earth/api/stac/collections): All collections. Input (query): `limit`, `offset`, `page`. Output: `{collections: [{id, title, description, keywords, license, providers, extent{spatial{bbox}, temporal{interval}}, links}], links[]}`.
+- [GET /api/stac/collections/{collectionId}](https://api.hubocean.earth/api/stac/collections/{collectionId}): One collection. Input: path `collectionId` (UUID). Output: one STAC Collection.
+- [GET /api/stac/collections/{collectionId}/items](https://api.hubocean.earth/api/stac/collections/{collectionId}/items): Items in a collection. Input: path `collectionId` (UUID); query `limit`, `offset`, `page`. Output: `{features: Item[], links[]}`.
+- [GET /api/stac/collections/{collectionId}/items/{itemId}](https://api.hubocean.earth/api/stac/collections/{collectionId}/items/{itemId}): One item. Input: path `collectionId`, `itemId` (dataset UUID). Output: STAC Item `{type: "Feature", stac_version, id, geometry, bbox, collection, properties{title, description, license, datetime | start_datetime + end_datetime}, assets, links}`.
+- [GET or POST /api/stac/search](https://api.hubocean.earth/api/stac/search): Search items across collections. Input: GET uses query params; POST uses a JSON body with the same fields, all optional: `bbox` (`minX,minY,maxX,maxY` in GET; a 4-number array in POST), `datetime` (RFC 3339 instant, or `start/end` with `..` for an open end), `collections` (string[]), `ids` (string[]), `intersects` (GeoJSON geometry), `limit` (default 10), `offset`, `page`. Output: `{type: "FeatureCollection", features: Item[], links[], context{returned, limit, matched}}`.
+
+## Programmatic access
+
+- [ODP documentation](https://docs.hubocean.earth/): User guides and reference for the platform.
+- [API reference](https://docs.hubocean.earth/): REST API documentation.
+- [OGC API Features](https://docs.hubocean.earth/reference/ogc-features/): Access vector data through the OGC Features standard.
+- [Vector tiles](https://docs.hubocean.earth/reference/vector-tiles/): Stream geospatial data as vector tiles.
+- [Python SDK (odp-sdk)](https://pypi.org/project/odp-sdk/): Python client for ODP.
+- [R SDK (odp-sdkr)](https://github.com/C4IROcean/odp-sdkr): R client for ODP.
+- [Catalog sitemap](https://api.hubocean.earth/api/public/catalog/v1/sitemap.xml): Machine-readable list of public catalog entries.
+- [Workspaces](https://workspace.hubocean.earth/hub/spawn): Hosted notebook environment with the SDKs preinstalled.
+
+# Documentation
+
+## JSONLD
+
+### JSONLD Base URL
+
+```text
+https://api.hubocean.earth/api/public/catalog/v2/jsonld
+```
+
+### Getting the JSON-LD URL for a dataset
+
+Each public dataset has a UUID in its ODP catalog page URL. Copy that UUID into the JSON-LD URL:
+
+```text
+https://api.hubocean.earth/api/public/catalog/v2/jsonld/datasets/{dataset_id}
+```
+
+For example, the [List of Seamount Bases in the World Oceans](https://app.hubocean.earth/catalog/dataset/8de642cc-03d9-4538-a6d4-8260e49df597) dataset has this JSON-LD URL:
+
+```text
+https://api.hubocean.earth/api/public/catalog/v2/jsonld/datasets/8de642cc-03d9-4538-a6d4-8260e49df597
+```
+
+Request it with `GET`:
+
+```bash
+curl "https://api.hubocean.earth/api/public/catalog/v2/jsonld/datasets/8de642cc-03d9-4538-a6d4-8260e49df597"
+```
+
+The response contains the dataset's name and catalog page URL, along with available fields such as description, license, keywords, provider, citation, and spatial coverage. It may also include a `distribution` with a data access URL. The example dataset links to the [OGC API — Features](https://docs.hubocean.earth/reference/ogc-features/) endpoint:
+
+```json
+{
+  "@type": "Dataset",
+  "name": "List of Seamount Bases in the World Oceans - Updated (Yesson et al. 2020)",
+  "distribution": [
+    {
+      "@type": "DataDownload",
+      "contentUrl": "https://api.hubocean.earth/api/features/collections/8de642cc-03d9-4538-a6d4-8260e49df597",
+      "encodingFormat": "application/geo+json"
+    }
+  ]
+}
+```
+
+The excerpt shows selected fields; the live response contains more metadata. Fields depend on what is available for the dataset, so a `distribution` or spatial extent may be absent.
+
+### Getting the JSON-LD URL for a data collection
+
+Use the collection UUID from its ODP catalog page URL:
+
+```text
+https://api.hubocean.earth/api/public/catalog/v2/jsonld/data-collections/{collection_id}
+```
+
+For example, the [List of Seamounts in the World Oceans collection](https://app.hubocean.earth/catalog/collection/3e82065b-4d9e-4f0b-8db1-75dbaf71b69a) can be requested with:
+
+```bash
+curl "https://api.hubocean.earth/api/public/catalog/v2/jsonld/data-collections/3e82065b-4d9e-4f0b-8db1-75dbaf71b69a"
+```
+
+The response describes the collection and lists its member datasets in `hasPart`. Each member has an `@id` you can request to get its full dataset metadata:
+
+```json
+{
+  "@type": "Dataset",
+  "name": "List of Seamounts in the World Oceans - Updated (Yesson et al. 2020)",
+  "hasPart": [
+    {
+      "@type": "Dataset",
+      "@id": "https://api.hubocean.earth/api/public/catalog/v2/jsonld/datasets/8de642cc-03d9-4538-a6d4-8260e49df597",
+      "name": "List of Seamount Bases in the World Oceans - Updated (Yesson et al. 2020)"
+    }
+  ]
+}
+```
+
+This excerpt shows one member. The live response can contain more.
+
+**Collection type:** The current JSON-LD response uses `@type: "Dataset"` for an ODP data collection as well as for an individual dataset. The `data-collections` URL path and `hasPart` field identify a collection record.
+
+### Following the links
+
+The `@id` field is the JSON-LD URL for the record. The `url` field points to its human-readable ODP catalog page. A dataset's `isPartOf.@id` points to its parent collection; a collection's `hasPart` entries point to its member datasets.
+
+Responses use Schema.org terms through `@context`, with a GeoSPARQL prefix for geometry. When spatial metadata is available, `spatialCoverage` describes the extent and `geosparql:hasGeometry` can provide it as WKT. Other available fields can include `dateCreated` and `dateModified`.
+
+These are public endpoints; the examples above work without an API key.
+
+
+## STAC API
+
+The STAC API provides access to ODP's public catalog following the [SpatioTemporal Asset Catalog (STAC)](https://stacspec.org/) standard. Use it when your tooling already works with STAC, or when you want to search ODP catalog metadata through a standard interface.
+
+!!! info "STAC vs. ODP terminology"
+    In STAC, a **collection** maps to an ODP **data collection** — a group of related datasets. Individual **datasets** are returned as STAC **items** from the search endpoint. STAC has no direct equivalent of the ODP "dataset" term.
+
+### Base URL
+
+```
+https://api.hubocean.earth/api/stac
+```
+
+### Capabilities
+
+The API is STAC-compliant and supports the following:
+
+- **Catalog root** — the main STAC catalog with links to collections and search
+- **Collections** — lists available ODP data collections with metadata
+- **Item search** — search queries using spatial, temporal, and other filters, returning ODP datasets as items
+
+### Endpoints
+
+| Endpoint            | Description                         | Method |
+|---------------------|-------------------------------------|--------|
+| `/stac`             | Root catalog                        | GET    |
+| `/stac/collections` | List available data collections     | GET    |
+| `/stac/search`      | Search for datasets (GeoJSON items) | POST   |
+
+---
+
+### List collections
+
+```
+GET https://api.hubocean.earth/api/stac/collections
+```
+
+```bash
+curl -X GET "https://api.hubocean.earth/api/stac/collections"
+```
+
+Example response:
+
+```json
+{
+  "collections": [
+    {
+      "id": "d0d0b53a-f598-46a3-a4c3-7c539f626956",
+      "description": "Example data collection",
+      "extent": {
+        "spatial": { "bbox": [[-180, -90, 180, 90]] },
+        "temporal": { "interval": [["2020-01-01T00:00:00Z", null]] }
+      },
+      "links": [
+        {
+          "rel": "self",
+          "href": "https://api.hubocean.earth/api/stac/collections/d0d0b53a-f598-46a3-a4c3-7c539f626956"
+        }
+      ]
+    }
+  ],
+  "links": []
+}
+```
+
+You can also fetch a single collection by UUID:
+
+```bash
+curl -X GET "https://api.hubocean.earth/api/stac/collections/d0d0b53a-f598-46a3-a4c3-7c539f626956"
+```
+
+### Pagination
+
+All collection, item, and search endpoints support pagination via `offset` and `limit` query parameters. Paginated responses include `next` and `prev` links you can follow to traverse results.
+
+```bash
+curl -X GET "https://api.hubocean.earth/api/stac/collections?offset=10&limit=10"
+```
+
+---
+
+### Search items (datasets)
+
+Use the `POST /stac/search` endpoint to filter datasets by collection, bounding box, time range, or geometry. Results are returned as STAC items.
+
+### Search parameters
+
+| Parameter     | Description |
+|---------------|-------------|
+| `collections` | List of data collection UUIDs to search within. Example: `["d0d0b53a-f598-46a3-a4c3-7c539f626956"]` |
+| `ids`         | List of dataset UUIDs to filter by. Example: `["eac0399f-82e3-4536-915f-7e1dca90d032"]` |
+| `bbox`        | Bounding box `[minX, minY, maxX, maxY]`. Example: `[-180, -90, 180, 90]` |
+| `intersects`  | GeoJSON geometry to search within |
+| `datetime`    | Time range in ISO 8601 format. Example: `"2020-01-01T00:00:00Z/2024-01-02T00:00:00Z"` |
+| `limit`       | Maximum number of results to return |
+
+!!! tip
+    For `collections` and `ids`, use the `"id"` field from a `/collections` or `/search` response.
+
+### Example request
+
+```bash
+curl -X POST "https://api.hubocean.earth/api/stac/search" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "collections": ["d0d0b53a-f598-46a3-a4c3-7c539f626956"],
+           "bbox": [-180, -90, 180, 90],
+           "datetime": "2020-01-01T00:00:00Z/2024-01-02T00:00:00Z",
+           "limit": 10
+         }'
+```
+
+Example response:
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "eac0399f-82e3-4536-915f-7e1dca90d032",
+      "geometry": { "type": "Point", "coordinates": [5, 55] },
+      "properties": { "datetime": "2023-06-15T12:00:00Z" },
+      "links": [
+        {
+          "rel": "self",
+          "href": "https://api.hubocean.earth/api/stac/items/eac0399f-82e3-4536-915f-7e1dca90d032"
+        }
+      ]
+    }
+  ]
+}
+```
+
+# Vector Tiles
+
+### What are Vector Tiles?
+
+Vector tiles are a modern way to deliver geospatial data over the web. Instead of rendering a static image on a server, the raw geometry and attribute data is sent to the client in small, pre-defined tile chunks — and rendered dynamically in the browser or GIS application.
+
+This approach offers several advantages:
+
+- **Fast and scalable** — only the tiles visible in the current viewport are requested, making it efficient even for very large datasets
+- **Fully interactive** — because the raw data is delivered, features remain queryable and styleable on the client side
+- **Resolution-independent** — vector tiles look sharp at any zoom level or screen resolution
+- **Widely supported** — most modern GIS tools and web mapping libraries support the [Mapbox Vector Tiles (MVT)](https://docs.mapbox.com/data/tilesets/guides/vector-tiles-standards/) standard natively
+
+Vector tiles are ideal when you want to **visualize a dataset on a map** — whether in a desktop GIS or a custom web application — without downloading the entire dataset.
+
+---
+
+### Getting the Vector Tile URL for a Dataset
+
+Every dataset on the Ocean Data Platform that contains a table with geometry can be accessed as vector tiles.
+
+To get the URL for a dataset:
+
+1. Open the dataset page on [app.hubocean.earth](https://app.hubocean.earth)
+2. Click **Use Dataset**
+3. Select **Vector Tiles**
+4. Copy the URL — it will look like this:
+
+Generic format:
+```
+https://api.hubocean.earth/api/table/v2/tile/{your-dataset-uuid}?z={z}&x={x}&y={y}
+```
+
+Example ([List of Seamount Bases in the World Oceans](https://app.hubocean.earth/catalog/dataset/8de642cc-03d9-4538-a6d4-8260e49df597/list-of-seamount-bases-in-the-world-oceans-updated-yesson-et-al-2020-) dataset):
+```
+https://api.hubocean.earth/api/table/v2/tile/8de642cc-03d9-4538-a6d4-8260e49df597?z={z}&x={x}&y={y}
+```
+
+The `{z}`, `{x}`, and `{y}` placeholders are the standard [slippy map tile coordinates](https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames) and will be filled in automatically by your GIS tool or web map library. The dataset UUID is embedded directly in the URL path.
+
+!!! info "Authentication"
+    For datasets that are not publicly shared, requests to the vector tile endpoint require an API key passed as a header:
+    ```
+    Authorization: ApiKey YOUR_API_KEY
+    ```
+    You can generate an API key on your [Account page](https://app.hubocean.earth/account).
+
+---
+
+### Explore in the ODP Map Explorer
+
+Every dataset with geometry can also be visualized directly in the ODP Map Explorer — no setup required. You can launch an empty map and add layers one at a time, or open Map Explorer from a dataset page with that dataset already loaded.
+
+Launch an empty Map Explorer:
+
+```
+https://app.hubocean.earth/map_explorer/
+```
+
+Open Map Explorer with the [List of Seamount Bases in the World Oceans][seamount-dataset] dataset loaded:
+
+[Open the example map][seamount-map]
+
+From this starting point, you can add layers, style features by any column, customize colour ramps and scale ranges, choose a map projection, and inspect the data feature by feature. You can also explore a [customized example map][customized-seamount-map] with multiple layers and depth-based styling.
+
+<p align="center">
+<img src="../../img/vector-tiles-map-explorer.jpeg" style="width: 100%; box-shadow: 2px 2px 8px rgba(0,0,0,0.2);" alt="ODP Map Explorer showing the List of Seamount Bases in the World Oceans dataset">
+</p>
+
+---
+
+## Using Vector Tiles in a GIS Tool
+
+### QGIS
+
+1. Open the **Data Source Manager** (`Layer → Data Source Manager` or `Ctrl+L`)
+2. Select **Vector Tile** from the left panel
+3. Click **New** → **New Generic Connection**
+4. Fill in the connection:
+    - **Name:** any descriptive name
+    - **URL:** paste the vector tile URL from the dataset page
+5. If the dataset requires authentication, open the **Authentication** tab and add an API key header:
+    - Header: `Authorization`
+    - Value: `ApiKey YOUR_API_KEY`
+6. Click **OK**, then **Connect**
+7. Select the layer and click **Add**
+
+<p align="center">
+<img src="../../img/vector-tiles-qgis.jpeg" style="width: 100%; box-shadow: 2px 2px 8px rgba(0,0,0,0.2);" alt="QGIS with an ODP vector tile layer loaded">
+</p>
+
+### ArcGIS Pro
+
+1. In the **Catalog** pane, right-click **Servers** → **New Vector Tile Service Connection**
+2. Paste the vector tile URL into the **Server URL** field
+3. If authentication is required, configure the connection to pass the `Authorization: ApiKey YOUR_API_KEY` header
+4. Click **OK** — the layer will appear as a vector tile layer in your map
+
+!!! tip "ArcGIS and MVT"
+    ArcGIS Pro supports the MVT standard natively from version 2.6+. If you are on an older version, consider upgrading or using QGIS.
+
+---
+
+### Using Vector Tiles in a Web Application
+
+During the beta phase, access to ODP vector tiles in web applications is limited by CORS. Vector tiles currently work on our website, [SeaSketch](https://seasketch.org/), and [kepler.gl demo](https://kepler.gl/demo). To request access for another domain, please submit a request through the [HUB Ocean helpdesk](https://issues.hubocean.earth/form/b7c0acf6-e71e-440f-8d03-da9db78396d4).
+
+ODP vector tiles follow the standard MVT format and can be consumed by all major web mapping libraries. Depending on the geometry type of your dataset and the level of interactivity or styling you need, there are several options:
+
+- **[MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/)** — the most capable open-source option; supports full custom styling, filtering, and click interactions for points, lines, and polygons
+- **[Deck.gl](https://deck.gl/)** — high-performance rendering for large datasets, good for data-heavy visualizations
+- **[Leaflet](https://leafletjs.com/) + [VectorGrid plugin](https://github.com/Leaflet/Leaflet.VectorGrid)** — lightweight option for simpler use cases
+- **Embedding via iframe** — if you host a map built with any of the above, it can be embedded in any webpage or CMS with a standard `<iframe>` tag
+
+The [MapLibre GL JS quickstart](https://maplibre.org/maplibre-gl-js/docs/#quickstart) is a good starting point — add the vector tile URL as a source of type `"vector"` with `source-layer: "default"`.
+
+---
+
+### More Information
+
+- [Mapbox Vector Tiles specification](https://docs.mapbox.com/data/tilesets/guides/vector-tiles-standards/)
+- [MapLibre GL JS documentation](https://maplibre.org/maplibre-gl-js/docs/)
+- [OGC API — Features](ogc-features.md) — an alternative way to access ODP geospatial data as raw features
+
+[seamount-dataset]: https://app.hubocean.earth/catalog/dataset/8de642cc-03d9-4538-a6d4-8260e49df597/list-of-seamount-bases-in-the-world-oceans-updated-yesson-et-al-2020-
+[seamount-map]: https://app.hubocean.earth/map_explorer/list-of-seamount-bases-in-the-world-oceans-updated-yesson-et-al-2020-?viz=%7B%228de642cc-03d9-4538-a6d4-8260e49df597%22%3A%7B%22baseColor%22%3A%22rgb%28254%2C+119%2C+76%29%22%2C%22columns%22%3A%7B%7D%7D%7D
+[customized-seamount-map]: https://app.hubocean.earth/map_explorer/list-of-seamount-bases-in-the-world-oceans-updated-yesson-et-al-2020-?view=%7B%22center%22%3A%5B11.91%2C-42.9%5D%2C%22zoom%22%3A3%2C%22bearing%22%3A0%2C%22pitch%22%3A0%7D&viz=%7B%22a608f54b-75c7-4df9-a3a8-cedbfa391873%22%3A%7B%22baseColor%22%3A%22rgba%28144%2C+19%2C+254%2C+0.72%29%22%2C%22columns%22%3A%7B%7D%7D%2C%228de642cc-03d9-4538-a6d4-8260e49df597%22%3A%7B%22baseColor%22%3A%22rgb%28254%2C+119%2C+76%29%22%2C%22columns%22%3A%7B%22Depth%22%3A%7B%22isHeatmap%22%3Atrue%2C%22min%22%3A-7051%2C%22max%22%3A-2%2C%22paletteId%22%3A%22plasma%22%2C%22nullColor%22%3A%22rgba%28128%2C+128%2C+128%2C+0.5%29%22%2C%22reversed%22%3Afalse%7D%7D%7D%7D
+
+
+# OGC API — Features
+
+[OGC API - Features](https://www.ogc.org/standards/ogcapi-features/) is a standardised API that lets you load ODP tabular datasets live into GIS tools without exporting files first. It is the successor to WFS, and most modern GIS clients support it natively.
+
+!!! tip "OGC Features vs. WFS"
+    OGC API — Features is the new version of the Web Feature Service (WFS). It supports similar functionalities but implements a modern RESTful design.
+
+### Base URL
+
+```
+https://api.hubocean.earth/api/features
+```
+
+### Prerequisites
+
+- An ODP account ([register here](https://app.hubocean.earth))
+- An API key from your [Account page](https://app.hubocean.earth/account)
+- QGIS or ArcGIS Pro installed
+
+### QGIS setup
+
+**1. Open the WFS / OGC API — Features panel**
+
+Browser Panel → WFS / OGC API — Features → New Connection.
+
+<p align="center"><img src="../../img/ogc-features-qgis-open-panel.png" style="width: 100%; box-shadow: 2px 2px 8px rgba(0,0,0,0.2);" alt="QGIS — Open WFS / OGC API Features panel"></p>
+
+**2. Configure the connection**
+
+Name it, set the URL to `https://api.hubocean.earth/api/features`, and select Version: OGC API — Features.
+
+<p align="center"><img src="../../img/ogc-features-qgis-new-connection.png" style="width: 100%; box-shadow: 2px 2px 8px rgba(0,0,0,0.2);" alt="QGIS — New OGC API Features connection dialog"></p>
+
+**3. Add your API key as a header**
+
+Add header → key `Authorization`, value `ApiKey YOUR_KEY` → Save.
+
+<p align="center"><img src="../../img/ogc-features-qgis-add-header.png" style="width: 100%; box-shadow: 2px 2px 8px rgba(0,0,0,0.2);" alt="QGIS — Add API key header"></p>
+
+!!! tip "Include the ApiKey prefix"
+    The header value must be `ApiKey YOUR_KEY`, not just the key itself.
+
+**4. Verify and set a feature limit**
+
+<p align="center"><img src="../../img/ogc-features-qgis-verify.png" style="width: 100%; box-shadow: 2px 2px 8px rgba(0,0,0,0.2);" alt="QGIS — Verify connection settings and set feature limit"></p>
+
+!!! tip "Feature limit"
+    Default is 25,000. Adjust as needed for large datasets.
+
+**5. Done — drag datasets into your project**
+
+<p align="center"><img src="../../img/ogc-features-qgis-result.png" style="width: 100%; box-shadow: 2px 2px 8px rgba(0,0,0,0.2);" alt="QGIS — ODP datasets loaded via OGC API Features"></p>
+
+
+# WSC Digital Whale Chart — API Guide
+
+The WSC Digital Whale Chart dataset is undergoing beta testing and is shared privately on ODP at: [app.hubocean.earth/catalog — WSC Whale Chart](https://app.hubocean.earth/catalog/collection/4fe1a663-2a35-4168-9ce1-7b85abacdeb5).
+
+!!! success "Static + Dynamic"
+    The dataset has two parts:
+
+    1. **[Digital Version](https://app.hubocean.earth/catalog/dataset/0a05b66f-877f-4bb6-8a1e-02baad494a4e/wsc-whale-chart-digital-version)**, this is the main static dataset, updated every few months,
+    2. **[NOAA Right Whale Dynamic Zones](https://app.hubocean.earth/catalog/dataset/0cd460fd-a05d-4062-bca9-d10b2c3bf070/wsc-whale-chart-noaa-right-whale-dynamic-zones)**, updated every 30 minutes
+
+## Base URL
+
+```
+https://api.hubocean.earth/api/features
+```
+
+The base URL follows the OGC API Features standard (the new Web Feature Service) and it gives you access to all the datasets on the Ocean Data Platform. This can be used in a GIS client like QGIS / ArcGIS.
+
+If you want to query just the Whale Chart, follow the guide below.
+
+## Connect
+
+### 1. Digital Version
+
+The Digital Whale Chart zones are made up of different *types* of geometry. Since GeoJSON supports only one geometry type at a time, you need to query each URL separately:
+
+```bash
+curl 'https://api.hubocean.earth/api/features/collections/0a05b66f-877f-4bb6-8a1e-02baad494a4e::MultiPolygon/items' -H 'Accept: application/geo+json' -H 'Authorization: ApiKey <sk_yourapikey>'
+```
+
+```bash
+curl 'https://api.hubocean.earth/api/features/collections/0a05b66f-877f-4bb6-8a1e-02baad494a4e::Polygon/items' -H 'Accept: application/geo+json' -H 'Authorization: ApiKey <sk_yourapikey>'
+```
+
+```bash
+curl 'https://api.hubocean.earth/api/features/collections/0a05b66f-877f-4bb6-8a1e-02baad494a4e::LineString/items' -H 'Accept: application/geo+json' -H 'Authorization: ApiKey <sk_yourapikey>'
+```
+
+```bash
+curl 'https://api.hubocean.earth/api/features/collections/0a05b66f-877f-4bb6-8a1e-02baad494a4e::Point/items' -H 'Accept: application/geo+json' -H 'Authorization: ApiKey <sk_yourapikey>'
+```
+
+### 2. NOAA Right Whale Dynamic Zones
+
+```bash
+curl 'https://api.hubocean.earth/api/features/collections/0cd460fd-a05d-4062-bca9-d10b2c3bf070/items' -H 'Accept: application/geo+json' -H 'Authorization: ApiKey <sk_yourapikey>'
+```
+
+
+# Ocean Data Platform SDK — Python and R
+
+The Ocean Data Platform exposes curated ocean datasets through a tabular API.
+The Python and R SDKs let you authenticate, stream Arrow batches, transform results into
+native data structures, and modify data (insert, update, delete). You can also
+inspect schemas, perform server-backed aggregations, and manage raw files.
+
+!!! tip "Quick Start"
+
+    Want a fast tour? Download and run the quick-start script:
+
+    - **Python**: <a href="https://github.com/C4IROcean/odp-sdkr/blob/master/scripts/example_quick_start.ipynb" target="_blank" rel="noopener">Quick-start notebook</a>
+    - **R**: <a href="https://github.com/C4IROcean/odp-sdkr/blob/master/scripts/example_quick_start.R" target="_blank" rel="noopener">Quick-start script</a>
+
+
+## Installation
+
+=== "Python"
+
+    Install from PyPI:
+    ```bash
+    pip install -U odp-sdk
+    ```
+
+=== "R"
+
+    Install from GitHub (requires `remotes` package):
+    ```r
+    install.packages("remotes")  # skip if already installed
+    remotes::install_github("C4IROcean/odp-sdkr")
+    ```
+    
+    Load the package in your session via `library(odp)` after the installation finishes.
+
+## Authentication
+
+Both SDKs authenticate with an API key, either passed explicitly or picked up from the `ODP_API_KEY` environment variable. Browser-based interactive login is not supported.
+
+=== "Python"
+
+    ```python
+    from odp.client import Client
+    
+    # Authenticate with API key
+    cli = Client(api_key="Sk_....")
+    
+    # Or fall back to the ODP_API_KEY environment variable
+    # export ODP_API_KEY="Sk_..."
+    cli = Client()
+    ```
+
+=== "R"
+
+    ```r
+    # Authenticate with API key
+    client <- odp_client(api_key = "Sk_....")
+    
+    # Or fall back to the ODP_API_KEY environment variable
+    # Sys.setenv(ODP_API_KEY = "Sk_...")
+    client <- odp_client()
+    ```
+
+You can generate an API key in the [Ocean Data Platform](https://app.hubocean.earth) web interface under your user profile.
+
+## Connecting to a Dataset
+
+Use the dataset ID from the catalog UI (<https://app.hubocean.earth/catalog>). The example below uses the public GLODAP dataset:
+
+=== "Python"
+
+    ```python
+    glodap = cli.dataset("aea06582-fc49-4995-a9a8-2f31fcc65424")
+    table = glodap.table
+    ```
+
+=== "R"
+
+    ```r
+    glodap <- client$dataset("aea06582-fc49-4995-a9a8-2f31fcc65424")
+    table <- glodap$table
+    ```
+
+If the dataset has an attached tabular store you can now work with the table
+using the helpers described below. When a dataset is not tabular the table calls
+will raise errors.
+
+## Reading data
+
+### `schema()`
+
+The schema call returns the Arrow layout for the table so you can plan your queries:
+
+=== "Python"
+
+    ```python
+    import pyarrow as pa
+    
+    schema = table.schema()
+    print(schema)
+    ```
+
+=== "R"
+
+    ```r
+    schema <- table$schema()
+    print(schema)
+    ```
+
+### `select()`
+
+Tables on ODP can be quite large, so instead of waiting for the full data to load, you can stream it in chunks using a `cursor` and materialize it into familiar structures like dataframes, geodataframes, or dictionaries.
+
+=== "Python"
+
+    ```python
+    # Fetch next chunk as Arrow record batch
+    cursor = table.select().batches()
+    batch = next(cursor)
+
+    # as Pandas or GeoPandas df
+    cursor = table.select().dataframes()
+    df = next(cursor)
+
+    # as Python dict
+    cursor = table.select().rows()
+    row = next(cursor)
+
+
+    # Or iterate any of the above in a loop:
+    for i in next(cursor):
+        print(i)
+    ```
+
+=== "R"
+
+    ```r
+    # Fetch next chunk as Arrow record batch
+    cursor <- table$select()
+    batch <- cursor$next_batch()
+
+    # as R dataframe
+    cursor <- table$select()
+    df <- cursor$next_dataframe()
+
+    # as Tidyverse tibble
+    cursor <- table$select()
+    tibble <- cursor$next_tibble()
+
+
+    # Or iterate any of the above in a loop:
+    cursor <- table$select()
+    while (!is.null(batch <- cursor$next_batch())) {
+      print(batch)
+    }
+    ```
+
+> Successive `next` calls only drain chunks that have not been streamed yet.
+> To start over again with a new cursor, run another `select()`.
+
+
+#### `filter`
+
+You can add a `filter` parameter to the `select()` to narrow down your query. 
+Filters use SQL/Arrow-style expressions, including geospatial helpers.
+
+=== "Python"
+
+    ```python
+    # Basic filter
+    cursor = table.select(filter='G2year >= 2020 AND G2year < 2025').batches()
+
+    # Geospatial filter
+    cursor = table.select(filter='geometry within "POLYGON ((-10 50, -5 50, -5 55, -10 55, -10 50))"').dataframes()
+    ```
+
+=== "R"
+
+    ```r
+    # Basic filter
+    cursor <- table$select(filter = "G2year >= 2020 AND G2year < 2025")
+
+    # Geospatial filter
+    cursor <- table$select(filter = 'geometry within "POLYGON ((-10 50, -5 50, -5 55, -10 55, -10 50))"')
+    ```
+
+Supported geospatial operations:
+
+- `intersect` - check if two polygons intersect
+- `within` - check if the polygon on the left is inside the polygon on the right
+- `contains` - check if the polygon on the left contains the polygon on the right
+
+#### `columns`
+
+Restrict the projection when you only need specific fields:
+
+=== "Python"
+
+    ```python
+    cursor = table.select(columns=['G2tco2', 'G2year']).batches()
+    ```
+
+=== "R"
+
+    ```r
+    cursor <- table$select(columns = c("G2tco2", "G2year"))
+    ```
+
+#### `vars`
+
+Bind parameters inside the filter using either named or positional variables:
+
+=== "Python"
+
+    ```python
+    # Named variables
+    cursor = table.select(
+        filter='G2year >= $start_year AND G2year < $end_year',
+        vars={'start_year': 2020, 'end_year': 2025}
+    ).batches()
+    
+    # Positional variables
+    cursor = table.select(
+        filter='G2year >= ? AND G2year < ?',
+        vars=[2020, 2025]
+    ).dataframes()
+    ```
+
+=== "R"
+
+    ```r
+    # Named variables
+    cursor <- table$select(
+      filter = "G2year >= $start AND G2year < $end",
+      vars = list(start = 2020, end = 2025)
+    )
+    
+    # Positional variables
+    cursor <- table$select(
+      filter = "G2year >= ? AND G2year < ?",
+      vars = list(2020, 2025)
+    )
+    ```
+
+
+#### `all...()`
+
+For smaller tables you can attempt to `select()` the whole table:
+
+=== "Python"
+
+    ```python
+    arrow_tab = table.select().all().table()    # Arrow table
+    df = table.select().all().dataframe()       # GeoPandas or Pandas df
+    rows = table.select().all().rows()          # Python list of dicts
+    ```
+
+=== "R"
+
+    ```r
+    arrow_tab <- table$select()$all_table()      # Arrow table
+    df <- table$select()$all_dataframe()         # R dataframe
+    tibble <- table$select()$all_tibble()        # Tidyverse tibble
+    ```
+
+> Adjust the `max_rows` or `max_time` if the default is not enough to collect the whole data.
+> Note: if the data is too large, you might want to stream with a cursor instead (see above).
+
+
+### `stats()`
+
+Fetch read-only stats for the table:
+
+=== "Python"
+
+    ```python
+    stats = table.stats()
+    print(stats)
+    ```
+
+=== "R"
+
+    ```r
+    stats <- table$stats()
+    ```
+
+### Aggregations
+
+`table.aggregate()` / `table$aggregate()` performs the heavy lifting on the backend and stitches
+partials together locally.
+
+=== "Python"
+
+    ```python
+    df = table.aggregate(
+        filter='G2year >= 2020 AND G2year < 2025',
+        group_by="G2year",
+        aggr={
+            'G2salinity': 'avg',
+            'G2tco2': 'max'
+        }
+    )
+    print(df)
+    ```
+
+=== "R"
+
+    ```r
+    agg <- table$aggregate(
+      group_by = "G2year",
+      filter = "G2year >= 2020 AND G2year < 2025",
+      aggr = list(G2salinity = "avg", G2tco2 = "max")
+    )
+    print(agg)
+    ```
+
+Aggregation operations: `"sum"`, `"min"`, `"max"`,
+`"count"`, or `"avg"`.
+
+**Advanced grouping expressions:**
+
+=== "Python"
+
+    ```python
+    # H3 hexagonal grid (resolution 0-15)
+    df = table.aggregate(
+        group_by="h3(geometry, 6)",
+        aggr={'G2salinity': 'avg'}
+    )
+    
+    # Bucketing (numeric ranges)
+    df = table.aggregate(
+        group_by="buckets(G2tco2, 0, 200, 400)",
+        aggr={'G2tco2': 'sum'}
+    )
+    ```
+
+=== "R"
+
+    ```r
+    # H3 hexagonal grid (resolution 0-15)
+    agg <- table$aggregate(
+      group_by = "h3(geometry, 6)",
+      aggr = list(G2salinity = "avg")
+    )
+    
+    # Bucketing (numeric ranges)
+    agg <- table$aggregate(
+      group_by = "buckets(G2tco2, 0, 200, 400)",
+      aggr = list(G2tco2 = "sum")
+    )
+    ```
+
+## Writing data
+
+You need to be an editor of a dataset to modify its tabular data.
+
+### Creating and inserting
+
+Create from arrow schema:
+
+=== "Python"
+
+    ```python
+    import pyarrow as pa
+    
+    schema = pa.schema([
+        pa.field("latitude", pa.float64()),
+        pa.field("depth", pa.int32())
+    ])
+    my_table.create(schema)
+    ```
+
+=== "R"
+
+    ```r
+    schema <- arrow::schema(
+        latitude = arrow::float64(),
+        depth = arrow::int32()
+    )
+    my_table$create(schema)
+    ```
+
+Create directly from data:
+
+=== "Python"
+
+    ```python
+    import pandas as pd
+    
+    df = pd.DataFrame({
+        'latitude': [10.5, 20.3],
+        'depth': [100, 200]
+    })
+    my_table.create(df)
+    ```
+
+=== "R"
+
+    ```r
+    df <- data.frame(
+        latitude = c(10.5, 20.3),
+        depth = c(100L, 200L)
+    )
+    my_table$create(df)
+    ```
+
+Append more data to the existing table:
+
+=== "Python"
+
+    ```python
+    with my_table as tx:
+        my_table.insert(df_more)
+    ```
+
+=== "R"
+
+    ```r
+    my_table$insert(df_more)
+    ```
+
+### Transactions
+
+For multi-step workflows (insert, update, delete) within a transaction:
+
+=== "Python"
+
+    ```python
+    with my_table as tx:
+        tx.insert(df)
+        df_replace = tx.replace(filter="depth > 50").dataframe()
+        df_replace['depth'] = df_replace['depth'] + 5
+        tx.insert(df_replace)
+        tx.delete(query="depth > 1000")
+    ```
+
+=== "R"
+
+    ```r
+    tx <- table$begin()
+    tx$insert(df)
+    df_replace <- tx$replace(filter = "depth > 50")$all_dataframe()
+    df_replace$depth <- df_replace$depth + 5L
+    tx$insert(df_replace)
+    tx$delete(query = "depth > 1000")
+    tx$commit()
+    ```
+
+### Schema management
+
+Alter the table schema and re-ingest data, or remove data:
+
+=== "Python"
+
+    ```python
+    import pyarrow as pa
+    
+    new_schema = pa.schema([
+        pa.field("latitude", pa.float64()),
+        pa.field("depth", pa.int32()),
+        pa.field("quality", pa.int8()),
+        pa.field("geometry", pa.binary(), True, metadata={"description": "column description", "class": "geometry", "index" : "1" })
+    ])
+    table.alter(new_schema)  # re-ingest with new schema
+    
+    table.truncate()  # remove all rows
+    table.drop()      # remove table entirely
+    ```
+
+=== "R"
+
+    ```r
+    new_schema <- arrow::schema(
+        latitude = arrow::float64(),
+        depth = arrow::int32(),
+        quality = arrow::int8()
+    )
+    table$alter(new_schema)   # re-ingest with new schema
+    
+    table$truncate()          # remove all rows
+    table$drop()              # remove table entirely
+    ```
+
+## Files
+
+While a dataset can have a table with a schema, it can also have zero or more files associated with it.
+
+=== "Python"
+
+    ```python
+    ds = cli.dataset("5cf13ecb-6e12-41b8-8cfc-9c9c6eb2065d")  # Aker Biomarine Echo Sounding data
+    all_files = ds.files.list()
+    ```
+
+=== "R"
+
+    ```r
+    ds <- client$dataset("5cf13ecb-6e12-41b8-8cfc-9c9c6eb2065d")  # Aker Biomarine Echo Sounding data
+    all_files <- ds$files$list()
+    ```
+
+If you are an editor, you can upload more files:
+
+=== "Python"
+
+    ```python
+    ds = cli.dataset(MY_DATASET_ID)
+
+    fid <- ds.files.upload("hello.txt", b"Hello World!")
+    ds.files.delete(fid)  # delete the file we just uploaded
+
+    with open("file.csv", "rb") as f:
+        fid = ds.files.upload("north_sea.csv", f)
+        ds.files.update_meta(fid, {
+            "name": "north_sea.csv",
+            "mime-type": "application/octet-stream",
+            "geometry": "POLYGON ((0 51, 4 51, 9 54, 9 59, 5 61, 1 61, 0 58, 0 51))",
+            "format": "csv",
+        })
+    ```
+
+=== "R"
+
+    ```r
+    ds <- client$dataset(MY_DATASET_ID)
+
+    fid <- ds$files$upload("hello.txt", charToRaw("Hello World!"))
+    ds$files$delete(fid)  # delete the file we just uploaded
+
+    content <- paste(readLines("file.csv"), collapse = "\n")
+    fid <- ds$files$upload("north_sea.csv", content)
+    ds$files$update_meta(fid, list(
+        name = "north_sea.csv",
+        geometry = "POLYGON ((0 51, 4 51, 9 54, 9 59, 5 61, 1 61, 0 58, 0 51))",
+        format = "csv"
+    ))
+    ```
+
+It might be easier to upload and manage files using the [ODP web interface](https://app.hubocean.earth/my_data).
+
+### Ingest
+
+Some files can be automatically ingested into the table. To ingest files into tables via the SDK:
+
+=== "Python"
+
+    ```python
+    ds = cli.dataset(MY_DATASET_ID)
+
+    with open("file.csv", "rb") as f:
+        fid = ds.files.upload("file.csv", f)
+
+    ds.files.ingest(fid)
+    ```
+
+=== "R"
+
+    ```r
+    ds <- client$dataset(MY_DATASET_ID)
+
+    content <- paste(readLines("file.csv"), collapse = "\n")
+    fid <- ds$files$upload("file.csv", content)
+
+    ds$files$ingest(fid)
+    ```
+
+If no table exists, a new table is created based on the file data.
+
+You can use the `opt` parameter to specify what should happen to an existing table when you ingest data:
+
+- `"append"` — Add new data to the existing table.
+- `"truncate"` — Remove all existing data and add new data.
+- `"drop"` — Drop the existing table and create a new one with the new data.
+
+By default, data is appended. If the data has a different schema than what already exists in the table, an error is raised.
+
+## Troubleshooting
+
+- Increase or decrease the `timeout` when fetching data to control when a cursor is returned.
+- Keep the `ODP_API_KEY` secret—never commit it to source control

@@ -1,23 +1,81 @@
 aid: hub-ocean
+
 name: HUB Ocean
-description: 'HUB Ocean is a company surfaced via the API Evangelist harvest backlog (source: vc-portfolio)
-  and added to the network as a stub for full-pipeline profiling.'
+
+image: http://static1.squarespace.com/static/60d9cb21964164103233a604/t/629aa705ad3eca53f4fc4dae/1654302469697/Deeptrekker.png?format=1500w
+
+description: HUB Ocean is an independent, non-profit foundation focused on unlocking ocean data. It operates a global partner community to create
+  the Ocean Data Platform, applications, and tools that support innovative ocean governance and research. The organization collaborates with stakeholders
+  worldwide to pilot new approaches for sustainable ocean management and data-driven decision making.
+
 url: https://raw.githubusercontent.com/api-evangelist/hub-ocean/refs/heads/main/apis.yml
+
 x-type: company
+
 x-source: harvest:vc-portfolio
-x-tier: stub
-x-tier-reason: harvest
+
+x-tier: profiled
+x-tier-reason: enrichment pass 2026-10-23 (modular-v1; was harvest)
+
 specificationVersion: '0.20'
+
 created: '2026-10-23'
+
 modified: '2026-10-23'
+
 tags:
-- Company
-apis: []
+- Ocean
+- Data
+- Non-profit
+- Foundation
+- Community
+- Open-source
+
 maintainers:
 - FN: Kin Lane
   email: kin@apievangelist.com
 - FN: APIs.json
   email: info@apis.io
+
 common:
+- type: LLMsTxt
+  url: llms/hub-ocean-llms.txt
+- type: Hosts
+  url: hosts/hub-ocean-hosts.yml
+- type: Vendors
+  url: vendors/hub-ocean-vendors.yml
+- type: Newsroom
+  url: https://www.hubocean.earth/press/news
+- type: GitHubOrganization
+  url: https://github.com/C4IROcean
+- type: Blog
+  url: https://www.hubocean.earth/blog
+- type: APIReference
+  url: https://docs.hubocean.earth/reference/sdk/
+- type: Documentation
+  url: https://docs.hubocean.earth/
+- type: DomainSecurity
+  url: security/hub-ocean-domain-security.yml
 - type: Website
   url: https://www.hubocean.earth/
+
+apis:
+- name: HUB Ocean API
+  description: HUB Ocean provides data access via its website and documentation.
+  humanURL: https://www.hubocean.earth/
+  aid: hub-ocean:hub-ocean-api
+
+x-coverage:
+  state: unreadable
+  reason: js-rendered-docs
+  detail: The HUB Ocean website is a Squarespace site delivering HTML with no machine‑readable API spec.
+  evidence:
+  - url: https://www.hubocean.earth/
+    status: 200
+  checked: '2026-10-23'
+x-enrichment:
+  date: '2026-10-23'
+  status: enriched
+  artifacts_added: 9
+  pass: modular-v1
+  engine: identity=local,contract=local,surfaces=local,docs=local,regulatory=local
